@@ -108,14 +108,17 @@ function DashboardContent() {
 
       switch (action) {
         case "soil":
-          await setDoc(doc(collection(db, "soilAnalysis")), {
-            ...commonData,
-            sector: "North Sector 04",
-            ph: 6.5,
-            nitrogen: 45,
-            phosphorus: 30,
-            potassium: 40
-          });
+          const sectors = ["North Sector 04", "East Sector 02", "South Sector 01"];
+          for (const sector of sectors) {
+            await setDoc(doc(collection(db, "soilAnalysis")), {
+              ...commonData,
+              sector,
+              ph: 6.0 + Math.random(),
+              nitrogen: Math.floor(Math.random() * 100),
+              phosphorus: Math.floor(Math.random() * 100),
+              potassium: Math.floor(Math.random() * 100)
+            });
+          }
           break;
         case "sluice":
           await setDoc(doc(db, "sluiceControl", "status"), {

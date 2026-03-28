@@ -10,6 +10,7 @@ interface User {
   phone?: string;
   profilePicture?: string;
   role?: string;
+  bio?: string;
 }
 
 interface AppContextType {

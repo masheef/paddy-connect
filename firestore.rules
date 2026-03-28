@@ -109,12 +109,22 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
 
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+             (request.resource.data[field] is string &&
+              request.resource.data[field].size() >= minLen &&
+              request.resource.data[field].size() <= maxLen);
+    }
+
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'name', 'email', 'profilePicture', 'role', 'phone']) &&
+      return hasOnlyAllowedFields(['uid', 'name', 'email', 'profilePicture', 'role', 'phone', 'bio']) &&
              data.uid is string && data.uid.size() > 0 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              isValidEmail(data.email) &&
-             (data.role in ['admin', 'user']);
+             (data.role in ['admin', 'user']) &&
+             isValidOptionalString('profilePicture', 0, 1000) &&
+             isValidOptionalString('phone', 0, 20) &&
+             isValidOptionalString('bio', 0, 500);
     }
 
     function isValidSoilAnalysis(data) {
@@ -162,7 +172,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated();
+      allow read: if isOwner(userId) || isAdmin();
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == 'user' || isAdmin());
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == resource.data.role || isAdmin());
     }

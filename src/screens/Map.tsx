@@ -1,11 +1,13 @@
-import { MapPin, Layers, Navigation, Plus, Search, Info, Settings, Thermometer, Droplets, Wind, CloudRain, Cloud, Sun, CloudLightning, X, AlertTriangle, Bug, Send, MessageSquare, Bot, Satellite } from "lucide-react";
+import { MapPin, Layers, Navigation, Plus, Search, Info, Settings, Thermometer, Droplets, Wind, CloudRain, Cloud, Sun, CloudLightning, X, AlertTriangle, Bug, Send, MessageSquare, Bot, Satellite, FlaskConical, Beaker, Zap as PotassiumIcon, Droplet as PhosphorusIcon, Wind as NitrogenIcon } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/src/lib/utils";
 import { getWeatherData, WeatherData } from "@/src/services/weatherService";
 import { useLanguage } from "@/src/context/LanguageContext";
+import { useApp } from "../context/AppContext";
 import { setOptions, importLibrary } from "@googlemaps/js-api-loader";
 import { getAIChatResponse } from "@/src/services/aiService";
+import { db, collection, query, where, getDocs, orderBy, handleFirestoreError, OperationType } from "../lib/firebase";
 
 interface Field {
   id: string;
@@ -16,8 +18,18 @@ interface Field {
   lng: number;
 }
 
+interface SoilData {
+  sector: string;
+  nitrogen: number;
+  phosphorus: number;
+  potassium: number;
+  ph: number;
+  timestamp: string;
+}
+
 export function Map() {
   const { t } = useLanguage();
+  const { user, isAuthReady } = useApp();
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loadingWeather, setLoadingWeather] = useState(false);
@@ -28,8 +40,11 @@ export function Map() {
   const [activeLayers, setActiveLayers] = useState({
     satellite: false,
     weather: false,
-    pest: false
+    pest: false,
+    soilHealth: false
   });
+  const [selectedNutrient, setSelectedNutrient] = useState<"nitrogen" | "phosphorus" | "potassium">("nitrogen");
+  const [soilAnalysisData, setSoilAnalysisData] = useState<SoilData[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [chatMessages, setChatMessages] = useState<{ role: "user" | "ai"; text: string }[]>([
     { role: "ai", text: "Hello! I'm your AI Agronomist. How can I help you with your fields today?" }
@@ -56,6 +71,34 @@ export function Map() {
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const weatherLayerRef = useRef<google.maps.ImageMapType | null>(null);
   const pestLayerRef = useRef<google.maps.ImageMapType | null>(null);
+  const soilHealthLayerRef = useRef<google.maps.ImageMapType | null>(null);
+
+  // Fetch Soil Analysis Data
+  useEffect(() => {
+    if (!isAuthReady || !user) return;
+
+    const fetchSoilData = async () => {
+      try {
+        const q = query(collection(db, "soilAnalysis"), orderBy("timestamp", "desc"));
+        const querySnapshot = await getDocs(q);
+        const data: SoilData[] = [];
+        const seenSectors = new Set();
+        
+        querySnapshot.forEach((doc) => {
+          const d = doc.data() as SoilData;
+          if (!seenSectors.has(d.sector)) {
+            data.push(d);
+            seenSectors.add(d.sector);
+          }
+        });
+        setSoilAnalysisData(data);
+      } catch (error) {
+        console.error("Error fetching soil data:", error);
+        handleFirestoreError(error, OperationType.LIST, "soilAnalysis");
+      }
+    };
+    fetchSoilData();
+  }, [isAuthReady, user]);
 
   useEffect(() => {
     setOptions({
@@ -207,7 +250,61 @@ export function Map() {
     } else {
       map.overlayMapTypes.removeAt(1);
     }
-  }, [map, activeLayers]);
+
+    // Soil Health Layer
+    if (activeLayers.soilHealth) {
+      if (soilHealthLayerRef.current) {
+        map.overlayMapTypes.removeAt(2);
+      }
+      
+      soilHealthLayerRef.current = new google.maps.ImageMapType({
+        getTileUrl: (coord, zoom) => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 256;
+          canvas.height = 256;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            // Visualize soil health based on data
+            fields.forEach(field => {
+              const soil = soilAnalysisData.find(s => s.sector === field.name);
+              if (soil) {
+                const value = soil[selectedNutrient];
+                // Map value to color (0-100)
+                const opacity = Math.min(value / 100, 0.8);
+                let color = 'rgba(0, 255, 0, ' + opacity + ')'; // Green for high
+                if (value < 30) color = 'rgba(255, 0, 0, ' + opacity + ')'; // Red for low
+                else if (value < 60) color = 'rgba(255, 165, 0, ' + opacity + ')'; // Orange for moderate
+
+                // Convert lat/lng to tile coordinates
+                const latLng = new google.maps.LatLng(field.lat, field.lng);
+                const worldPoint = map.getProjection()?.fromLatLngToPoint(latLng);
+                if (worldPoint) {
+                  const scale = Math.pow(2, zoom);
+                  const pixelX = worldPoint.x * scale - coord.x * 256;
+                  const pixelY = worldPoint.y * scale - coord.y * 256;
+                  
+                  if (pixelX >= 0 && pixelX < 256 && pixelY >= 0 && pixelY < 256) {
+                    const gradient = ctx.createRadialGradient(pixelX, pixelY, 0, pixelX, pixelY, 100);
+                    gradient.addColorStop(0, color);
+                    gradient.addColorStop(1, 'transparent');
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, 0, 256, 256);
+                  }
+                }
+              }
+            });
+          }
+          return canvas.toDataURL();
+        },
+        tileSize: new google.maps.Size(256, 256),
+        opacity: 0.6,
+        name: 'SoilHealth'
+      });
+      map.overlayMapTypes.setAt(2, soilHealthLayerRef.current);
+    } else {
+      map.overlayMapTypes.removeAt(2);
+    }
+  }, [map, activeLayers, selectedNutrient, soilAnalysisData, fields]);
 
   useEffect(() => {
     if (selectedField) {
@@ -324,23 +421,50 @@ export function Map() {
                       { id: "satellite", icon: Satellite, label: t("satellite") },
                       { id: "weather", icon: CloudRain, label: t("weatherRadar") },
                       { id: "pest", icon: Bug, label: t("pestDensity") },
+                      { id: "soilHealth", icon: FlaskConical, label: "Soil Health" },
                     ].map((layer) => (
-                      <button
-                        key={layer.id}
-                        onClick={() => setActiveLayers(prev => ({ ...prev, [layer.id]: !prev[layer.id as keyof typeof activeLayers] }))}
-                        className={cn(
-                          "w-full flex items-center gap-3 p-3 rounded-2xl transition-all",
-                          activeLayers[layer.id as keyof typeof activeLayers] 
-                            ? "bg-primary/10 text-primary" 
-                            : "hover:bg-surface-container text-on-surface-variant"
+                      <div key={layer.id} className="space-y-2">
+                        <button
+                          onClick={() => setActiveLayers(prev => ({ ...prev, [layer.id]: !prev[layer.id as keyof typeof activeLayers] }))}
+                          className={cn(
+                            "w-full flex items-center gap-3 p-3 rounded-2xl transition-all",
+                            activeLayers[layer.id as keyof typeof activeLayers] 
+                              ? "bg-primary/10 text-primary" 
+                              : "hover:bg-surface-container text-on-surface-variant"
+                          )}
+                        >
+                          <layer.icon className="w-5 h-5" />
+                          <span className="text-sm font-bold">{layer.label}</span>
+                          {activeLayers[layer.id as keyof typeof activeLayers] && (
+                            <div className="ml-auto w-2 h-2 bg-primary rounded-full" />
+                          )}
+                        </button>
+                        
+                        {layer.id === "soilHealth" && activeLayers.soilHealth && (
+                          <motion.div 
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            className="pl-8 flex flex-col gap-1"
+                          >
+                            {[
+                              { id: "nitrogen", label: "Nitrogen (N)", icon: NitrogenIcon },
+                              { id: "phosphorus", label: "Phosphorus (P)", icon: PhosphorusIcon },
+                              { id: "potassium", label: "Potassium (K)", icon: PotassiumIcon },
+                            ].map((nutrient) => (
+                              <button
+                                key={nutrient.id}
+                                onClick={() => setSelectedNutrient(nutrient.id as any)}
+                                className={cn(
+                                  "text-left text-[10px] font-black uppercase tracking-widest py-1 px-2 rounded-lg transition-colors",
+                                  selectedNutrient === nutrient.id ? "text-primary bg-primary/5" : "text-on-surface-variant/60 hover:text-on-surface"
+                                )}
+                              >
+                                {nutrient.label}
+                              </button>
+                            ))}
+                          </motion.div>
                         )}
-                      >
-                        <layer.icon className="w-5 h-5" />
-                        <span className="text-sm font-bold">{layer.label}</span>
-                        {activeLayers[layer.id as keyof typeof activeLayers] && (
-                          <div className="ml-auto w-2 h-2 bg-primary rounded-full" />
-                        )}
-                      </button>
+                      </div>
                     ))}
                   </div>
                 </motion.div>
@@ -352,6 +476,33 @@ export function Map() {
 
       {/* Map Legends */}
       <div className="absolute bottom-32 left-6 z-10 flex flex-col gap-4">
+        <AnimatePresence>
+          {activeLayers.soilHealth && (
+            <motion.div 
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="bg-white/90 backdrop-blur-xl p-4 rounded-3xl shadow-xl border border-outline-variant/10 min-w-[160px]"
+            >
+              <h5 className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-3">Soil Health ({selectedNutrient})</h5>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-green-500/60" />
+                  <span className="text-xs font-bold text-on-surface">High (&gt;60)</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-orange-500/60" />
+                  <span className="text-xs font-bold text-on-surface">Moderate (30-60)</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-red-500/60" />
+                  <span className="text-xs font-bold text-on-surface">Low (&lt;30)</span>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <AnimatePresence>
           {activeLayers.weather && (
             <motion.div 

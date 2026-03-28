@@ -1,5 +1,7 @@
 {
   "name": "PaddyConnect",
   "description": "Smart field management and AI-driven precision analytics for rice farmers.",
-  "requestFramePermissions": ["geolocation"]
+  "requestFramePermissions": [
+    "geolocation"
+  ]
 }
