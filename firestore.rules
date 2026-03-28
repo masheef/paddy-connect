@@ -1,0 +1,204 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (UID)
+    // Fields:
+    //   - uid: string (required) - Firebase Auth UID
+    //   - name: string (required) - Full name
+    //   - email: string (required, email format) - Email address
+    //   - photoURL: string (optional) - Profile picture URL
+    //   - role: string (required, enum: ['admin', 'user']) - User role
+    //
+    // Collection: soilAnalysis
+    // Document ID: analysisId
+    // Fields:
+    //   - uid: string (required) - Author UID
+    //   - timestamp: string (required, ISO 8601) - Time of analysis
+    //   - sector: string (required) - Field sector
+    //   - ph: number (optional) - pH level
+    //   - nitrogen: number (optional) - Nitrogen level
+    //   - phosphorus: number (optional) - Phosphorus level
+    //   - potassium: number (optional) - Potassium level
+    //
+    // Collection: sluiceControl
+    // Document ID: status (singleton)
+    // Fields:
+    //   - status: string (required, enum: ['open', 'closed']) - Current status
+    //   - lastUpdated: string (required, ISO 8601) - Last update time
+    //   - updatedBy: string (optional) - UID of updater
+    //
+    // Collection: pestReports
+    // Document ID: reportId
+    // Fields:
+    //   - uid: string (required) - Author UID
+    //   - timestamp: string (required, ISO 8601) - Time of report
+    //   - pestType: string (required) - Type of pest
+    //   - severity: string (required, enum: ['low', 'medium', 'high']) - Severity level
+    //   - location: string (optional) - Location details
+    //
+    // Collection: harvestLogs
+    // Document ID: logId
+    // Fields:
+    //   - uid: string (required) - Author UID
+    //   - timestamp: string (required, ISO 8601) - Time of log
+    //   - yield: number (required) - Harvest yield
+    //   - quality: string (optional) - Quality metrics
+    //   - notes: string (optional) - Additional notes
+    //
+    // Collection: schedules
+    // Document ID: scheduleId
+    // Fields:
+    //   - uid: string (required) - Author UID
+    //   - title: string (required) - Task title
+    //   - time: string (required) - Task time
+    //   - location: string (optional) - Task location
+    //   - type: string (optional) - Task type
+    //   - date: string (required, YYYY-MM-DD) - Task date
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "smasheef@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function isValidSimpleDate(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'name', 'email', 'profilePicture', 'role', 'phone']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             isValidEmail(data.email) &&
+             (data.role in ['admin', 'user']);
+    }
+
+    function isValidSoilAnalysis(data) {
+      return hasOnlyAllowedFields(['uid', 'timestamp', 'sector', 'ph', 'nitrogen', 'phosphorus', 'potassium']) &&
+             data.uid == request.auth.uid &&
+             isValidDateString(data.timestamp) &&
+             data.sector is string && data.sector.size() > 0 && data.sector.size() < 50;
+    }
+
+    function isValidSluiceControl(data) {
+      return hasOnlyAllowedFields(['status', 'lastUpdated', 'updatedBy']) &&
+             data.status in ['open', 'closed'] &&
+             isValidDateString(data.lastUpdated);
+    }
+
+    function isValidPestReport(data) {
+      return hasOnlyAllowedFields(['uid', 'timestamp', 'pestType', 'severity', 'location']) &&
+             data.uid == request.auth.uid &&
+             isValidDateString(data.timestamp) &&
+             data.pestType is string && data.pestType.size() > 0 &&
+             data.severity in ['low', 'medium', 'high'];
+    }
+
+    function isValidHarvestLog(data) {
+      return hasOnlyAllowedFields(['uid', 'timestamp', 'yield', 'quality', 'notes']) &&
+             data.uid == request.auth.uid &&
+             isValidDateString(data.timestamp) &&
+             data.yield is number && data.yield >= 0;
+    }
+
+    function isValidSchedule(data) {
+      return hasOnlyAllowedFields(['uid', 'title', 'time', 'location', 'type', 'date', 'id']) &&
+             data.uid == request.auth.uid &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
+             data.time is string &&
+             isValidSimpleDate(data.date);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /test/connection {
+      allow read: if true;
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == 'user' || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    match /soilAnalysis/{analysisId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidSoilAnalysis(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
+    match /sluiceControl/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isValidSluiceControl(request.resource.data);
+    }
+
+    match /pestReports/{reportId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidPestReport(request.resource.data);
+      allow update, delete: if isDocOwner() || isAdmin();
+    }
+
+    match /harvestLogs/{logId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidHarvestLog(request.resource.data);
+      allow update, delete: if isDocOwner() || isAdmin();
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidSchedule(request.resource.data);
+      allow update, delete: if isDocOwner() || isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

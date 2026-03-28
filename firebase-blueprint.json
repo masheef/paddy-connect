@@ -1,0 +1,96 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique user ID from Firebase Auth" },
+        "name": { "type": "string", "description": "Full name of the user" },
+        "email": { "type": "string", "format": "email", "description": "Email address" },
+        "profilePicture": { "type": "string", "description": "Profile picture URL" },
+        "role": { "type": "string", "enum": ["admin", "user"], "description": "User role" },
+        "phone": { "type": "string", "description": "Phone number" }
+      },
+      "required": ["uid", "name", "email"]
+    },
+    "SoilAnalysis": {
+      "title": "Soil Analysis",
+      "description": "Results of soil health scans",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string", "description": "User who initiated the analysis" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "sector": { "type": "string" },
+        "ph": { "type": "number" },
+        "nitrogen": { "type": "number" },
+        "phosphorus": { "type": "number" },
+        "potassium": { "type": "number" }
+      },
+      "required": ["uid", "timestamp", "sector"]
+    },
+    "SluiceControl": {
+      "title": "Sluice Control",
+      "description": "Status of the irrigation sluice gate",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["open", "closed"] },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["status", "lastUpdated"]
+    },
+    "PestReport": {
+      "title": "Pest Report",
+      "description": "Reports of pest sightings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "pestType": { "type": "string" },
+        "severity": { "type": "string", "enum": ["low", "medium", "high"] },
+        "location": { "type": "string" }
+      },
+      "required": ["uid", "timestamp", "pestType", "severity"]
+    },
+    "HarvestLog": {
+      "title": "Harvest Log",
+      "description": "Logs of harvest data",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "yield": { "type": "number" },
+        "quality": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["uid", "timestamp", "yield"]
+    },
+    "Schedule": {
+      "title": "Schedule",
+      "description": "Work schedules and tasks",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "title": { "type": "string" },
+        "time": { "type": "string" },
+        "location": { "type": "string" },
+        "type": { "type": "string" },
+        "date": { "type": "string", "format": "date" }
+      },
+      "required": ["uid", "title", "time", "date"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "User profiles" },
+    "/soilAnalysis/{analysisId}": { "schema": "SoilAnalysis", "description": "Soil analysis records" },
+    "/sluiceControl/status": { "schema": "SluiceControl", "description": "Current sluice gate status" },
+    "/pestReports/{reportId}": { "schema": "PestReport", "description": "Pest reports" },
+    "/harvestLogs/{logId}": { "schema": "HarvestLog", "description": "Harvest logs" },
+    "/schedules/{scheduleId}": { "schema": "Schedule", "description": "Work schedules" }
+  }
+}
